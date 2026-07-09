@@ -59,9 +59,6 @@ jobs:
       # Node runs V8's JIT under the hardened runtime, so it is signed with the allow-jit,
       # allow-unsigned-executable-memory, and disable-library-validation entitlements. Without them a
       # hardened-runtime Node would be signed but crash on launch, which is worse than unsigned.
-      # Notarization is intentionally omitted: notarytool submits an installer, dmg, or zip, and this
-      # artifact is a bare tarball with no app bundle. A future signed .pkg installer is where a
-      # notarize + staple step belongs.
       - name: Sign the macOS binaries
         if: runner.os == 'macOS'
         shell: bash
@@ -121,6 +118,33 @@ jobs:
             exit 1
           fi
           echo "Signed ${signed} Mach-O binaries in ${ARTIFACT}."
+
+      # The signed payload is zipped and submitted to Apple notarization. Bare executables cannot
+      # be stapled (stapler needs a bundle/dmg/pkg), but the ticket still lands: Gatekeeper resolves
+      # notarization online by code-signature hash, so browser-downloaded (quarantined) copies pass
+      # assessment. notarytool exits non-zero on a rejected submission, failing the leg loudly.
+      # Skipped without the Apple ID secrets: forks still release, with the signing-only caveat.
+      - name: Notarize the macOS binaries
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ARTIFACT: ${{ matrix.artifact }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MACOS_CERT_P12_BASE64:-}" ] || [ -z "${APPLE_ID:-}" ]; then
+            echo "No signing cert or no Apple ID; skipping notarization for ${ARTIFACT}."
+            exit 0
+          fi
+          DIR="daemon/dist-standalone/${ARTIFACT}"
+          ZIP="$RUNNER_TEMP/${ARTIFACT}-notarize.zip"
+          ditto -c -k --keepParent "$DIR" "$ZIP"
+          xcrun notarytool submit "$ZIP" \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+            --wait --timeout 30m
 
       - name: Package the tarball
         shell: bash
