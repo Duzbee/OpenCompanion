@@ -63,6 +63,7 @@ opencompanion status                                      # pairing + per-CLI co
 - Pairing and multiple backends: [docs/pairing.md](docs/pairing.md)
 - Ceilings and confinement: [docs/policy.md](docs/policy.md)
 - The audit log: [docs/audit.md](docs/audit.md)
+- Building a compatible backend for your own app: [docs/backend-integration.md](docs/backend-integration.md)
 
 ## Commands
 
