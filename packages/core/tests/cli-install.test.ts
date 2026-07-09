@@ -130,8 +130,10 @@ describe('installCli - Claude Code (raw binary + checksum)', () => {
     const binPath = managedPath('claude-code', 'darwin')
     expect(existsSync(binPath)).toBe(true)
     expect(new Uint8Array(readFileSync(binPath))).toEqual(bytes)
-    // chmod 0o755 on non-Windows.
-    expect(statSync(binPath).mode & 0o777).toBe(0o755)
+    // chmod 0o755 on non-Windows; Windows has no POSIX execute bits to assert.
+    if (process.platform !== 'win32') {
+      expect(statSync(binPath).mode & 0o777).toBe(0o755)
+    }
     // No tmp file left behind.
     expect(existsSync(`${binPath}.tmp`)).toBe(false)
 
@@ -738,7 +740,7 @@ describe('installCli - managed-install path safety (symlink / TOCTOU)', () => {
     expect(() => assertPlacedUnchanged(binPath, sha)).toThrow(/changed on disk before verification/)
   })
 
-  it('creates the managed install root private (0700) on non-Windows', async () => {
+  it.skipIf(process.platform === 'win32')('creates the managed install root private (0700) on non-Windows', async () => {
     await installCli(baseDir, 'claude-code', () => {}, new AbortController().signal, undefined, {
       fetchFn: claudeFetch(),
       runToolFn: okRunTool,
@@ -749,7 +751,7 @@ describe('installCli - managed-install path safety (symlink / TOCTOU)', () => {
     expect(mode).toBe(0o700)
   })
 
-  it('tightens a PRE-EXISTING loose-permission install root to 0700 on non-Windows', async () => {
+  it.skipIf(process.platform === 'win32')('tightens a PRE-EXISTING loose-permission install root to 0700 on non-Windows', async () => {
     // mkdirSync's `mode` applies only to dirs it creates; a `clis/<id>` left world-readable by a
     // prior install must be re-tightened, so re-installing narrows it back to owner-only.
     const installRoot = join(baseDir, 'clis', 'claude-code')

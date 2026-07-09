@@ -9,7 +9,7 @@ import {
 
 describe('mergePaths', () => {
   it('dedupes preserving first-seen order, current PATH winning', () => {
-    const out = mergePaths('/a:/b', '/b:/c', ['/c:/d'.split(':')[0], '/d'])
+    const out = mergePaths(['/a', '/b'].join(delimiter), ['/b', '/c'].join(delimiter), ['/c', '/d'])
     expect(out.split(delimiter)).toEqual(['/a', '/b', '/c', '/d'])
   })
 })
