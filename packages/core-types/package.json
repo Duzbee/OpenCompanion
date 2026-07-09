@@ -1,0 +1,23 @@
+{
+  "name": "@opencompanion/core-types",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@opencompanion/protocol": "workspace:*",
+    "ai": "6.0.208"
+  },
+  "devDependencies": {
+    "@types/node": "25.6.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.5"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}

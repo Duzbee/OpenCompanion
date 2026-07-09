@@ -1,0 +1,15 @@
+{
+	"name": "opencompanion-workspace",
+	"private": true,
+	"version": "0.1.0",
+	"scripts": {
+		"build": "pnpm --filter opencompanion build",
+		"standalone": "pnpm --filter opencompanion standalone",
+		"check-types": "pnpm -r check-types",
+		"test": "pnpm -r test"
+	},
+	"packageManager": "pnpm@11.1.2",
+	"engines": {
+		"node": ">=22"
+	}
+}

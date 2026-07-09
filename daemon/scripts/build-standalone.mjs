@@ -1,0 +1,131 @@
+// Builds the self-contained OpenCompanion daemon into `dist-standalone/opencompanion-<os>-<arch>/` - the payload
+// an installer (.pkg/.msi/.deb) or a `curl | sh` script drops on a user's machine, and the folder a
+// Phase-3 `release.yml` tars into `opencompanion-<os>-<arch>.tar.gz`. There is no GUI app and no management
+// UI: the daemon is headless, pairs + connects over its own CLI, and installs itself as an OS service
+// (`opencompanion service install`).
+//
+// The daemon ships as a single esbuild bundle (tsup.bundle.config.ts) inlining all third-party JS
+// except the two agentic SDKs, which ship as a small node_modules pruned of their ~210MB optional
+// platform binaries (`--omit=optional`); the user's OWN installed CLI is driven via binaryPath. A
+// vendored Node runs it, and a tiny launcher exposes `opencompanion <cmd>`. Layout produced:
+//
+//   dist-standalone/opencompanion-<os>-<arch>/node[.exe]              the vendored Node runtime
+//   dist-standalone/opencompanion-<os>-<arch>/daemon/cli.js + chunks  the ESM bundle
+//   dist-standalone/opencompanion-<os>-<arch>/daemon/node_modules/    SDK JS only (no heavy binaries)
+//   dist-standalone/opencompanion-<os>-<arch>/opencompanion[.cmd]          the launcher: `opencompanion serve | pair | connect | service ...`
+//
+// Cross-platform: by default the CURRENT platform's Node (`process.execPath`) is vendored and the
+// artifact is named for `process.platform`/`process.arch`. For a CI cross-build, set
+// OPENCOMPANION_VENDOR_NODE to a downloaded official Node binary for the target, plus OPENCOMPANION_TARGET_OS /
+// OPENCOMPANION_TARGET_ARCH so the launcher type and artifact name match that target.
+import { execFileSync } from 'node:child_process'
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const companionDir = dirname(dirname(fileURLToPath(import.meta.url)))
+// The per-OS release artifact folder, named for the (optionally cross-build-overridden) target.
+const targetOs = process.env.OPENCOMPANION_TARGET_OS ?? process.platform
+const targetArch = process.env.OPENCOMPANION_TARGET_ARCH ?? process.arch
+const artifactName = `opencompanion-${targetOs}-${targetArch}`
+const distDir = join(companionDir, 'dist-standalone', artifactName)
+const daemonOut = join(distDir, 'daemon')
+const nodeOut = distDir
+
+/**
+ * Runs a command, inheriting stdio, failing loud on a non-zero exit.
+ *
+ * @param {string} cmd - The executable.
+ * @param {string[]} args - Its arguments.
+ * @param {string} cwd - The working directory.
+ */
+function run(cmd, args, cwd) {
+  console.log(`[standalone] ${cmd} ${args.join(' ')}  (cwd: ${cwd})`)
+  execFileSync(cmd, args, { cwd, stdio: 'inherit' })
+}
+
+/**
+ * Reads the Claude Agent SDK version range from `@opencompanion/core` so the shipped SDK JS always
+ * matches what the bundle was compiled against. (Codex is driven via the spawned `codex app-server`,
+ * not an SDK, so nothing external ships for it.) Resolved via the package id rather than a hard path
+ * so the OpenCompanion export's scoped rewrite (`@opencompanion/core` -> `@opencompanion/core`) retargets it at
+ * `packages/core` unchanged.
+ *
+ * @returns {{ claude: string }} The Claude Agent SDK version range.
+ */
+function sdkVersions() {
+  const require = createRequire(import.meta.url)
+  const corePkg = join(dirname(require.resolve('@opencompanion/core')), '..', 'package.json')
+  const pkg = JSON.parse(readFileSync(corePkg, 'utf8'))
+  const claude = pkg.dependencies?.['@anthropic-ai/claude-agent-sdk']
+  if (!claude) {
+    throw new Error('[standalone] could not read the Claude Agent SDK version from @opencompanion/core')
+  }
+  return { claude }
+}
+
+// 1. Build the distribution bundle (no UI to build).
+run('pnpm', ['exec', 'tsup', '--config', 'tsup.bundle.config.ts'], companionDir)
+
+// 2. Reset the output and copy the bundle.
+rmSync(distDir, { recursive: true, force: true })
+mkdirSync(daemonOut, { recursive: true })
+const bundleDir = join(companionDir, 'dist-bundle')
+if (!existsSync(join(bundleDir, 'cli.js'))) {
+  throw new Error(`[standalone] bundle missing at ${bundleDir} (did tsup run?)`)
+}
+for (const file of readdirSync(bundleDir)) {
+  if (file.endsWith('.js')) copyFileSync(join(bundleDir, file), join(daemonOut, file))
+}
+
+// 3. The daemon package.json (ESM + the external Claude Agent SDK), installed WITHOUT the heavy
+//    platform binaries (they are optionalDependencies).
+const { claude } = sdkVersions()
+writeFileSync(
+  join(daemonOut, 'package.json'),
+  `${JSON.stringify(
+    {
+      name: 'companion-daemon-dist',
+      private: true,
+      type: 'module',
+      dependencies: { '@anthropic-ai/claude-agent-sdk': claude }
+    },
+    null,
+    2
+  )}\n`
+)
+run('npm', ['install', '--omit=optional', '--no-audit', '--no-fund', '--loglevel=error'], daemonOut)
+
+// 4. Vendor the Node runtime for this (or the target) platform.
+const isWin = targetOs === 'win32'
+const vendoredNode = isWin ? 'node.exe' : 'node'
+copyFileSync(process.env.OPENCOMPANION_VENDOR_NODE ?? process.execPath, join(nodeOut, vendoredNode))
+if (!isWin) chmodSync(join(nodeOut, vendoredNode), 0o755)
+
+// 5. The launcher: `opencompanion <cmd>` runs the vendored node against the bundle.
+if (isWin) {
+  writeFileSync(
+    join(distDir, 'opencompanion.cmd'),
+    '@echo off\r\n"%~dp0node.exe" "%~dp0daemon\\cli.js" %*\r\n'
+  )
+} else {
+  const launcher = join(distDir, 'opencompanion')
+  writeFileSync(
+    launcher,
+    '#!/bin/sh\nDIR="$(cd "$(dirname "$0")" && pwd)"\nexec "$DIR/node" "$DIR/daemon/cli.js" "$@"\n'
+  )
+  chmodSync(launcher, 0o755)
+}
+
+console.log(`[standalone] done -> ${distDir}`)
+console.log(`[standalone]   run: ${join(distDir, isWin ? 'opencompanion.cmd' : 'opencompanion')} serve`)

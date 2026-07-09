@@ -1,0 +1,12 @@
+packages:
+  - packages/*
+  - daemon
+
+# Supply-chain cooldown: a freshly published dependency version is only installable once it
+# is this many minutes old (7 days), so a compromised release is caught before it lands here.
+minimumReleaseAge: 10080
+
+# Only these packages may run install/build scripts (pnpm blocks the rest by default). esbuild
+# links its prebuilt platform binary this way, which the daemon's tsup bundle step needs.
+allowBuilds:
+  esbuild: true
