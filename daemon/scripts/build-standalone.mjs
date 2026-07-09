@@ -51,7 +51,8 @@ const nodeOut = distDir
  */
 function run(cmd, args, cwd) {
   console.log(`[standalone] ${cmd} ${args.join(' ')}  (cwd: ${cwd})`)
-  execFileSync(cmd, args, { cwd, stdio: 'inherit' })
+  // shell on Windows: pnpm/npm are .cmd shims there, unrunnable via execFileSync directly.
+  execFileSync(cmd, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32' })
 }
 
 /**
