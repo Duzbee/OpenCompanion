@@ -11,17 +11,17 @@ describe('appDataDir', () => {
 
   it('uses ~/Library/Application Support on macOS', () => {
     const dir = appDataDir({ platform: 'darwin', home: '/Users/u' })
-    expect(dir).toBe('/Users/u/Library/Application Support/opencompanion')
+    expect(dir).toBe(join('/Users/u', 'Library', 'Application Support', 'opencompanion'))
   })
 
   it('uses $XDG_DATA_HOME on Linux when set', () => {
     const dir = appDataDir({ platform: 'linux', home: '/home/u', env: { XDG_DATA_HOME: '/home/u/.data' } })
-    expect(dir).toBe('/home/u/.data/opencompanion')
+    expect(dir).toBe(join('/home/u/.data', 'opencompanion'))
   })
 
   it('falls back to ~/.local/share on Linux', () => {
     const dir = appDataDir({ platform: 'linux', home: '/home/u', env: {} })
-    expect(dir).toBe('/home/u/.local/share/opencompanion')
+    expect(dir).toBe(join('/home/u', '.local', 'share', 'opencompanion'))
   })
 })
 
